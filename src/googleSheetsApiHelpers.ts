@@ -532,14 +532,15 @@ export async function freezeRowsAndColumns(
 }
 
 /**
- * Sets dropdown data validation on a range of cells.
- * Creates a ONE_OF_LIST validation rule with the provided values.
+ * Sets or clears dropdown data validation on a range of cells.
+ * When values are provided, creates a ONE_OF_LIST validation rule.
+ * When values are omitted or empty, clears any existing validation from the range.
  */
 export async function setDropdownValidation(
   sheets: Sheets,
   spreadsheetId: string,
   range: string,
-  values: string[],
+  values?: string[],
   strict: boolean = true,
   inputMessage?: string
 ): Promise<sheets_v4.Schema$BatchUpdateSpreadsheetResponse> {
@@ -548,6 +549,19 @@ export async function setDropdownValidation(
     const sheetId = await resolveSheetId(sheets, spreadsheetId, sheetName);
     const gridRange = parseA1ToGridRange(a1Range, sheetId);
 
+    const rule =
+      values && values.length > 0
+        ? {
+            condition: {
+              type: 'ONE_OF_LIST' as const,
+              values: values.map((v) => ({ userEnteredValue: v })),
+            },
+            showCustomUi: true,
+            strict,
+            inputMessage: inputMessage || null,
+          }
+        : undefined;
+
     const response = await sheets.spreadsheets.batchUpdate({
       spreadsheetId,
       requestBody: {
@@ -555,15 +569,7 @@ export async function setDropdownValidation(
           {
             setDataValidation: {
               range: gridRange,
-              rule: {
-                condition: {
-                  type: 'ONE_OF_LIST',
-                  values: values.map((v) => ({ userEnteredValue: v })),
-                },
-                showCustomUi: true,
-                strict,
-                inputMessage: inputMessage || null,
-              },
+              rule,
             },
           },
         ],

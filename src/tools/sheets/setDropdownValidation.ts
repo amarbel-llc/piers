@@ -8,7 +8,7 @@ export function register(server: FastMCP) {
   server.addTool({
     name: 'setDropdownValidation',
     description:
-      'Adds a dropdown list to a range of cells, restricting input to the specified values. Use this to create status columns, category selectors, or any fixed-choice field.',
+      'Adds or removes a dropdown list on a range of cells. Provide values to create a dropdown restricting input to those options. Omit values to remove dropdown validation from the range.',
     parameters: z.object({
       spreadsheetId: z
         .string()
@@ -22,9 +22,9 @@ export function register(server: FastMCP) {
         ),
       values: z
         .array(z.string())
-        .min(1)
+        .optional()
         .describe(
-          'The allowed dropdown options (e.g., ["Open", "In Progress", "Done"]).'
+          'The allowed dropdown options (e.g., ["Open", "In Progress", "Done"]). Omit to remove existing dropdown validation from the range.'
         ),
       strict: z
         .boolean()
@@ -38,8 +38,11 @@ export function register(server: FastMCP) {
     }),
     execute: async (args, { log }) => {
       const sheets = await getSheetsClient();
+      const isClearing = !args.values || args.values.length === 0;
       log.info(
-        `Setting dropdown validation on "${args.range}" with ${args.values.length} options in spreadsheet ${args.spreadsheetId}`
+        isClearing
+          ? `Clearing dropdown validation on "${args.range}" in spreadsheet ${args.spreadsheetId}`
+          : `Setting dropdown validation on "${args.range}" with ${args.values!.length} options in spreadsheet ${args.spreadsheetId}`
       );
 
       try {
@@ -52,7 +55,10 @@ export function register(server: FastMCP) {
           args.inputMessage
         );
 
-        return `Successfully added dropdown validation to range "${args.range}" with ${args.values.length} options: ${args.values.join(', ')}.`;
+        if (isClearing) {
+          return `Successfully removed dropdown validation from range "${args.range}".`;
+        }
+        return `Successfully added dropdown validation to range "${args.range}" with ${args.values!.length} options: ${args.values!.join(', ')}.`;
       } catch (error: any) {
         log.error(`Error setting dropdown validation: ${error.message || error}`);
         if (error instanceof UserError) throw error;
