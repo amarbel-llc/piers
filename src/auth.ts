@@ -6,6 +6,7 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as http from 'http';
 import { fileURLToPath } from 'url';
+import { logger } from './logger.js';
 
 // --- Calculate paths relative to this script file (ESM way) ---
 const __filename = fileURLToPath(import.meta.url);
@@ -41,19 +42,19 @@ async function authorizeWithServiceAccount(): Promise<JWT> {
     });
     await auth.authorize();
     if (impersonateUser) {
-      console.error(`Service Account authentication successful, impersonating: ${impersonateUser}`);
+      logger.info(`Service Account authentication successful, impersonating: ${impersonateUser}`);
     } else {
-      console.error('Service Account authentication successful!');
+      logger.info('Service Account authentication successful!');
     }
     return auth;
   } catch (error: any) {
     if (error.code === 'ENOENT') {
-      console.error(`FATAL: Service account key file not found at path: ${serviceAccountPath}`);
+      logger.error(`FATAL: Service account key file not found at path: ${serviceAccountPath}`);
       throw new Error(
         `Service account key file not found. Please check the path in SERVICE_ACCOUNT_PATH.`
       );
     }
-    console.error('FATAL: Error loading or authorizing the service account key:', error.message);
+    logger.error('FATAL: Error loading or authorizing the service account key:', error.message);
     throw new Error(
       'Failed to authorize using the service account. Ensure the key file is valid and the path is correct.'
     );
@@ -96,7 +97,7 @@ async function saveCredentials(client: OAuth2Client): Promise<void> {
     refresh_token: client.credentials.refresh_token,
   });
   await fs.writeFile(TOKEN_PATH, payload);
-  console.error('Token stored to', TOKEN_PATH);
+  logger.info('Token stored to', TOKEN_PATH);
 }
 
 async function authenticate(): Promise<OAuth2Client> {
@@ -115,7 +116,7 @@ async function authenticate(): Promise<OAuth2Client> {
     scope: SCOPES.join(' '),
   });
 
-  console.error('Authorize this app by visiting this url:', authorizeUrl);
+  logger.info('Authorize this app by visiting this url:', authorizeUrl);
 
   // Wait for the OAuth callback
   const code = await new Promise<string>((resolve, reject) => {
@@ -146,9 +147,9 @@ async function authenticate(): Promise<OAuth2Client> {
   if (tokens.refresh_token) {
     await saveCredentials(oAuth2Client);
   } else {
-    console.error('Did not receive refresh token. Token might expire.');
+    logger.warn('Did not receive refresh token. Token might expire.');
   }
-  console.error('Authentication successful!');
+  logger.info('Authentication successful!');
   return oAuth2Client;
 }
 
@@ -158,18 +159,18 @@ async function authenticate(): Promise<OAuth2Client> {
 export async function authorize(): Promise<OAuth2Client | JWT> {
   // Check if the Service Account environment variable is set.
   if (process.env.SERVICE_ACCOUNT_PATH) {
-    console.error('Service account path detected. Attempting service account authentication...');
+    logger.info('Service account path detected. Attempting service account authentication...');
     return authorizeWithServiceAccount();
   } else {
     // If not, execute the original OAuth 2.0 flow exactly as it was.
-    console.error('No service account path detected. Falling back to standard OAuth 2.0 flow...');
+    logger.info('No service account path detected. Falling back to standard OAuth 2.0 flow...');
     let client = await loadSavedCredentialsIfExist();
     if (client) {
       // Optional: Add token refresh logic here if needed, though library often handles it.
-      console.error('Using saved credentials.');
+      logger.info('Using saved credentials.');
       return client;
     }
-    console.error('Starting authentication flow...');
+    logger.info('Starting authentication flow...');
     client = await authenticate();
     return client;
   }

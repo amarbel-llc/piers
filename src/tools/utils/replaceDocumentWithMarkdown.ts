@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { getDocsClient } from '../../clients.js';
 import { DocumentIdParameter, MarkdownConversionError } from '../../types.js';
 import * as GDocsHelpers from '../../googleDocsApiHelpers.js';
-import { convertMarkdownToRequests } from '../../markdownToGoogleDocs.js';
+import { insertMarkdown, formatInsertResult } from '../../markdown-transformer/index.js';
 
 export function register(server: FastMCP) {
   server.addTool({
@@ -89,24 +89,18 @@ export function register(server: FastMCP) {
           log.info(`Delete complete. Document now empty.`);
         }
 
-        // 4. Convert markdown to requests (indices calculated for empty document)
+        // 4. Convert markdown and insert (indices calculated for empty document)
         log.info(
-          `Converting markdown starting at index ${startIndex} (after delete, document should be empty)`
+          `Inserting markdown starting at index ${startIndex} (after delete, document should be empty)`
         );
-        const markdownRequests = convertMarkdownToRequests(args.markdown, startIndex, args.tabId);
-        log.info(`Generated ${markdownRequests.length} requests from markdown`);
-        log.info(`First 3 requests: ${JSON.stringify(markdownRequests.slice(0, 3), null, 2)}`);
+        const result = await insertMarkdown(docs, args.documentId, args.markdown, {
+          startIndex,
+          tabId: args.tabId,
+        });
 
-        // 5. Execute markdown requests (insert + format) in separate API call(s)
-        await GDocsHelpers.executeBatchUpdateWithSplitting(
-          docs,
-          args.documentId,
-          markdownRequests,
-          log
-        );
-
-        log.info(`Successfully replaced document content`);
-        return `Successfully replaced document content with ${args.markdown.length} characters of markdown (${markdownRequests.length} operations).`;
+        const debugSummary = formatInsertResult(result);
+        log.info(debugSummary);
+        return `Successfully replaced document content with ${args.markdown.length} characters of markdown.\n\n${debugSummary}`;
       } catch (error: any) {
         log.error(`Error replacing document with markdown: ${error.message}`);
         if (error instanceof UserError || error instanceof MarkdownConversionError) {

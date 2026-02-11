@@ -2,16 +2,17 @@
 import { FastMCP } from 'fastmcp';
 import { initializeGoogleClient } from './clients.js';
 import { registerAllTools } from './tools/index.js';
+import { logger } from './logger.js';
 
 // Set up process-level unhandled error/rejection handlers to prevent crashes
 process.on('uncaughtException', (error) => {
-  console.error('Uncaught Exception:', error);
+  logger.error('Uncaught Exception:', error);
   // Don't exit process, just log the error and continue
   // This will catch timeout errors that might otherwise crash the server
 });
 
 process.on('unhandledRejection', (reason, promise) => {
-  console.error('Unhandled Promise Rejection:', reason);
+  logger.error('Unhandled Promise Rejection:', reason);
   // Don't exit process, just log the error and continue
 });
 
@@ -27,7 +28,7 @@ registerAllTools(server);
 async function startServer() {
   try {
     await initializeGoogleClient(); // Authorize BEFORE starting listeners
-    console.error('Starting Ultimate Google Docs & Sheets MCP server...');
+    logger.info('Starting Ultimate Google Docs & Sheets MCP server...');
 
     // Using stdio as before
     const configToUse = {
@@ -36,16 +37,15 @@ async function startServer() {
 
     // Start the server with proper error handling
     server.start(configToUse);
-    console.error(
+    logger.info(
       `MCP Server running using ${configToUse.transportType}. Awaiting client connection...`
     );
 
-    // Log that error handling has been enabled
-    console.error(
+    logger.info(
       'Process-level error handling configured to prevent crashes from timeout errors.'
     );
   } catch (startError: any) {
-    console.error('FATAL: Server failed to start:', startError.message || startError);
+    logger.error('FATAL: Server failed to start:', startError.message || startError);
     process.exit(1);
   }
 }

@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { getDocsClient } from '../../clients.js';
 import { DocumentIdParameter, MarkdownConversionError } from '../../types.js';
 import * as GDocsHelpers from '../../googleDocsApiHelpers.js';
-import { convertMarkdownToRequests } from '../../markdownToGoogleDocs.js';
+import { insertMarkdown, formatInsertResult } from '../../markdown-transformer/index.js';
 
 export function register(server: FastMCP) {
   server.addTool({
@@ -87,24 +87,14 @@ export function register(server: FastMCP) {
         }
 
         // 3. Convert and append markdown
-        const markdownRequests = convertMarkdownToRequests(
-          args.markdown,
+        const result = await insertMarkdown(docs, args.documentId, args.markdown, {
           startIndex,
-          args.tabId
-        );
-        log.info(
-          `Generated ${markdownRequests.length} requests from markdown`
-        );
+          tabId: args.tabId,
+        });
 
-        await GDocsHelpers.executeBatchUpdateWithSplitting(
-          docs,
-          args.documentId,
-          markdownRequests,
-          log
-        );
-
-        log.info(`Successfully appended markdown`);
-        return `Successfully appended ${args.markdown.length} characters of markdown (${markdownRequests.length} operations).`;
+        const debugSummary = formatInsertResult(result);
+        log.info(debugSummary);
+        return `Successfully appended ${args.markdown.length} characters of markdown.\n\n${debugSummary}`;
       } catch (error: any) {
         log.error(`Error appending markdown: ${error.message}`);
         if (

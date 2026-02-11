@@ -1,0 +1,792 @@
+import { describe, it, expect } from 'vitest';
+import { convertMarkdownToRequests } from './markdownToDocs.js';
+import { docsJsonToMarkdown } from './docsToMarkdown.js';
+
+// ============================================================
+// Markdown -> Google Docs Requests
+// ============================================================
+
+describe('Markdown to Docs Conversion', () => {
+  describe('Basic Text Formatting', () => {
+    it('should convert bold text', () => {
+      const requests = convertMarkdownToRequests('**bold text**', 1);
+
+      const insertReq = requests.find((r) => r.insertText);
+      expect(insertReq).toBeDefined();
+      expect(insertReq!.insertText!.text).toBe('bold text');
+
+      const styleReq = requests.find((r) => r.updateTextStyle);
+      expect(styleReq).toBeDefined();
+      expect(styleReq!.updateTextStyle!.textStyle!.bold).toBe(true);
+    });
+
+    it('should convert italic text', () => {
+      const requests = convertMarkdownToRequests('*italic text*', 1);
+
+      const styleReq = requests.find((r) => r.updateTextStyle);
+      expect(styleReq).toBeDefined();
+      expect(styleReq!.updateTextStyle!.textStyle!.italic).toBe(true);
+    });
+
+    it('should convert strikethrough text', () => {
+      const requests = convertMarkdownToRequests('~~strikethrough text~~', 1);
+
+      const styleReq = requests.find((r) => r.updateTextStyle);
+      expect(styleReq).toBeDefined();
+      expect(styleReq!.updateTextStyle!.textStyle!.strikethrough).toBe(true);
+    });
+
+    it('should convert nested bold and italic', () => {
+      const requests = convertMarkdownToRequests('***bold italic***', 1);
+
+      const styleReq = requests.find((r) => r.updateTextStyle);
+      expect(styleReq).toBeDefined();
+      expect(styleReq!.updateTextStyle!.textStyle!.bold).toBe(true);
+      expect(styleReq!.updateTextStyle!.textStyle!.italic).toBe(true);
+    });
+
+    it('should style inline code as monospace', () => {
+      const requests = convertMarkdownToRequests('Use `inline_code` here', 1);
+
+      const styleReqs = requests.filter((r) => r.updateTextStyle);
+      const codeStyleReq = styleReqs.find(
+        (r) => r.updateTextStyle!.textStyle!.weightedFontFamily?.fontFamily === 'Roboto Mono',
+      );
+      expect(codeStyleReq).toBeDefined();
+    });
+  });
+
+  describe('Links', () => {
+    it('should convert basic links', () => {
+      const requests = convertMarkdownToRequests('[link text](https://example.com)', 1);
+
+      const insertReq = requests.find((r) => r.insertText);
+      expect(insertReq).toBeDefined();
+      expect(insertReq!.insertText!.text).toBe('link text');
+
+      const styleReq = requests.find((r) => r.updateTextStyle);
+      expect(styleReq).toBeDefined();
+      expect(styleReq!.updateTextStyle!.textStyle!.link!.url).toBe('https://example.com');
+    });
+  });
+
+  describe('Headings', () => {
+    it('should convert H1', () => {
+      const requests = convertMarkdownToRequests('# Heading 1', 1);
+
+      const insertReq = requests.find(
+        (r) => r.insertText && r.insertText.text === 'Heading 1',
+      );
+      expect(insertReq).toBeDefined();
+
+      const paraReq = requests.find((r) => r.updateParagraphStyle);
+      expect(paraReq).toBeDefined();
+      expect(paraReq!.updateParagraphStyle!.paragraphStyle!.namedStyleType).toBe('HEADING_1');
+    });
+
+    it('should convert H2', () => {
+      const requests = convertMarkdownToRequests('## Heading 2', 1);
+
+      const paraReq = requests.find((r) => r.updateParagraphStyle);
+      expect(paraReq).toBeDefined();
+      expect(paraReq!.updateParagraphStyle!.paragraphStyle!.namedStyleType).toBe('HEADING_2');
+    });
+
+    it('should convert H3', () => {
+      const requests = convertMarkdownToRequests('### Heading 3', 1);
+
+      const paraReq = requests.find((r) => r.updateParagraphStyle);
+      expect(paraReq).toBeDefined();
+      expect(paraReq!.updateParagraphStyle!.paragraphStyle!.namedStyleType).toBe('HEADING_3');
+    });
+  });
+
+  describe('Lists', () => {
+    it('should convert bullet lists', () => {
+      const requests = convertMarkdownToRequests('- Item 1\n- Item 2\n- Item 3', 1);
+
+      const bulletReqs = requests.filter((r) => r.createParagraphBullets);
+      expect(bulletReqs).toHaveLength(3);
+      expect(bulletReqs[0].createParagraphBullets!.bulletPreset).toBe(
+        'BULLET_DISC_CIRCLE_SQUARE',
+      );
+    });
+
+    it('should convert numbered lists', () => {
+      const requests = convertMarkdownToRequests('1. Item 1\n2. Item 2\n3. Item 3', 1);
+
+      const bulletReqs = requests.filter((r) => r.createParagraphBullets);
+      expect(bulletReqs).toHaveLength(3);
+      expect(bulletReqs[0].createParagraphBullets!.bulletPreset).toBe(
+        'NUMBERED_DECIMAL_ALPHA_ROMAN',
+      );
+    });
+
+    it('should preserve nested list levels with leading tabs', () => {
+      const requests = convertMarkdownToRequests('- Parent\n  - Child', 1);
+
+      const insertReqs = requests.filter((r) => r.insertText);
+      expect(insertReqs.some((r) => r.insertText!.text!.includes('Parent'))).toBe(true);
+      expect(insertReqs.some((r) => r.insertText!.text === '\t')).toBe(true);
+      expect(insertReqs.some((r) => r.insertText!.text!.includes('Child'))).toBe(true);
+    });
+
+    it('should convert markdown task lists to checkbox bullets', () => {
+      const requests = convertMarkdownToRequests('- [x] done\n- [ ] todo', 1);
+
+      const bulletReqs = requests.filter((r) => r.createParagraphBullets);
+      expect(bulletReqs).toHaveLength(2);
+      expect(bulletReqs[0].createParagraphBullets!.bulletPreset).toBe('BULLET_CHECKBOX');
+      expect(bulletReqs[1].createParagraphBullets!.bulletPreset).toBe('BULLET_CHECKBOX');
+
+      const allInsertedText = requests
+        .filter((r) => r.insertText)
+        .map((r) => r.insertText!.text)
+        .join('');
+      expect(allInsertedText).not.toContain('[x]');
+      expect(allInsertedText).not.toContain('[ ]');
+    });
+
+    it('should not let list bullet ranges bleed into following headings', () => {
+      const requests = convertMarkdownToRequests(
+        '- Parent\n  1. Child\n\n## Next Heading',
+        1,
+      );
+
+      const headingReq = requests.find(
+        (r) => r.updateParagraphStyle?.paragraphStyle?.namedStyleType === 'HEADING_2',
+      );
+      expect(headingReq).toBeDefined();
+      const headingStart = headingReq!.updateParagraphStyle!.range!.startIndex!;
+
+      const bulletReqs = requests.filter((r) => r.createParagraphBullets);
+      const overlappingBullet = bulletReqs.find((r) => {
+        const { startIndex, endIndex } = r.createParagraphBullets!.range!;
+        return headingStart >= startIndex! && headingStart < endIndex!;
+      });
+      expect(overlappingBullet).toBeUndefined();
+    });
+  });
+
+  describe('Code Blocks', () => {
+    it('should convert fenced code blocks and style them as code', () => {
+      const requests = convertMarkdownToRequests(
+        '```js\nconst x = 1;\nconsole.log(x);\n```',
+        1,
+      );
+
+      const insertReqs = requests.filter((r) => r.insertText);
+      expect(insertReqs.some((r) => r.insertText!.text!.includes('const x = 1;'))).toBe(true);
+      expect(insertReqs.some((r) => r.insertText!.text!.includes('console.log(x);'))).toBe(
+        true,
+      );
+
+      const styleReqs = requests.filter((r) => r.updateTextStyle);
+      const monospaceReqs = styleReqs.filter(
+        (r) => r.updateTextStyle!.textStyle!.weightedFontFamily?.fontFamily === 'Roboto Mono',
+      );
+      expect(monospaceReqs.length).toBeGreaterThanOrEqual(2);
+    });
+  });
+
+  describe('Mixed Content', () => {
+    it('should convert document with multiple elements', () => {
+      const markdown = `# Title
+
+This is **bold** and *italic* text with a [link](https://example.com).
+
+- List item 1
+- List item 2
+
+## Heading 2
+
+More content.`;
+
+      const requests = convertMarkdownToRequests(markdown, 1);
+
+      expect(requests.some((r) => r.insertText)).toBe(true);
+      expect(requests.some((r) => r.updateTextStyle)).toBe(true);
+      expect(requests.some((r) => r.updateParagraphStyle)).toBe(true);
+      expect(requests.some((r) => r.createParagraphBullets)).toBe(true);
+
+      expect(
+        requests.find(
+          (r) => r.updateParagraphStyle?.paragraphStyle?.namedStyleType === 'HEADING_1',
+        ),
+      ).toBeDefined();
+
+      expect(
+        requests.find(
+          (r) => r.updateParagraphStyle?.paragraphStyle?.namedStyleType === 'HEADING_2',
+        ),
+      ).toBeDefined();
+    });
+  });
+
+  describe('Index Tracking', () => {
+    it('should use correct start index', () => {
+      const requests = convertMarkdownToRequests('Test text', 100);
+
+      const insertReq = requests.find((r) => r.insertText);
+      expect(insertReq).toBeDefined();
+      expect(insertReq!.insertText!.location!.index).toBe(100);
+    });
+
+    it('should track indices for sequential inserts', () => {
+      const requests = convertMarkdownToRequests('First paragraph.\n\nSecond paragraph.', 1);
+
+      const insertReqs = requests.filter((r) => r.insertText);
+      expect(insertReqs.length).toBeGreaterThan(0);
+
+      for (const req of insertReqs) {
+        expect(req.insertText!.location).toBeDefined();
+        expect(typeof req.insertText!.location!.index).toBe('number');
+      }
+    });
+  });
+
+  describe('Tab Support', () => {
+    it('should include tabId in requests when provided', () => {
+      const requests = convertMarkdownToRequests('**bold text**', 1, 'tab123');
+
+      const insertReq = requests.find((r) => r.insertText);
+      expect(insertReq).toBeDefined();
+      expect(insertReq!.insertText!.location!.tabId).toBe('tab123');
+
+      const styleReq = requests.find((r) => r.updateTextStyle);
+      expect(styleReq).toBeDefined();
+      expect(styleReq!.updateTextStyle!.range!.tabId).toBe('tab123');
+    });
+  });
+
+  describe('Edge Cases', () => {
+    it('should handle empty markdown', () => {
+      expect(convertMarkdownToRequests('', 1)).toHaveLength(0);
+    });
+
+    it('should handle whitespace-only markdown', () => {
+      expect(convertMarkdownToRequests('   \n\n   ', 1)).toHaveLength(0);
+    });
+
+    it('should handle plain text without formatting', () => {
+      const requests = convertMarkdownToRequests('Just plain text', 1);
+
+      const insertReq = requests.find((r) => r.insertText);
+      expect(insertReq).toBeDefined();
+      expect(insertReq!.insertText!.text).toBe('Just plain text');
+
+      const styleReqs = requests.filter((r) => r.updateTextStyle);
+      expect(styleReqs).toHaveLength(0);
+    });
+  });
+
+  describe('Horizontal Rules', () => {
+    it('should produce a border-bottom paragraph style for ---', () => {
+      const requests = convertMarkdownToRequests('Above\n\n---\n\nBelow', 1);
+
+      const hrReqs = requests.filter(
+        (r) => r.updateParagraphStyle?.paragraphStyle?.borderBottom,
+      );
+      expect(hrReqs).toHaveLength(1);
+
+      const border = hrReqs[0].updateParagraphStyle!.paragraphStyle!.borderBottom!;
+      expect(border.dashStyle).toBe('SOLID');
+      expect(border.width!.magnitude).toBe(1);
+      expect(border.width!.unit).toBe('PT');
+    });
+
+    it('should handle multiple horizontal rules', () => {
+      const requests = convertMarkdownToRequests(
+        '# Title\n\n---\n\n## S1\n\nText.\n\n---\n\n## S2',
+        1,
+      );
+
+      const hrReqs = requests.filter(
+        (r) => r.updateParagraphStyle?.paragraphStyle?.borderBottom,
+      );
+      expect(hrReqs).toHaveLength(2);
+    });
+
+    it('should not drop surrounding content', () => {
+      const requests = convertMarkdownToRequests('Above\n\n---\n\nBelow', 1);
+
+      const allText = requests
+        .filter((r) => r.insertText)
+        .map((r) => r.insertText!.text)
+        .join('');
+
+      expect(allText).toContain('Above');
+      expect(allText).toContain('Below');
+    });
+
+    it('should place the HR paragraph between surrounding content', () => {
+      const requests = convertMarkdownToRequests('Above\n\n---\n\nBelow', 1);
+
+      const hrReqs = requests.filter(
+        (r) => r.updateParagraphStyle?.paragraphStyle?.borderBottom,
+      );
+      expect(hrReqs).toHaveLength(1);
+
+      const hrStart = hrReqs[0].updateParagraphStyle!.range!.startIndex!;
+      const hrEnd = hrReqs[0].updateParagraphStyle!.range!.endIndex!;
+
+      const aboveInsert = requests.find(
+        (r) => r.insertText && r.insertText.text!.includes('Above'),
+      );
+      const belowInsert = requests.find(
+        (r) => r.insertText && r.insertText.text!.includes('Below'),
+      );
+
+      expect(aboveInsert!.insertText!.location!.index).toBeLessThan(hrStart);
+      expect(belowInsert!.insertText!.location!.index).toBeGreaterThanOrEqual(hrEnd);
+    });
+
+    it('should include tabId on HR border requests when provided', () => {
+      const requests = convertMarkdownToRequests('---', 1, 'tab-abc');
+
+      const hrReqs = requests.filter(
+        (r) => r.updateParagraphStyle?.paragraphStyle?.borderBottom,
+      );
+      expect(hrReqs.length).toBeGreaterThan(0);
+      expect(hrReqs[0].updateParagraphStyle!.range!.tabId).toBe('tab-abc');
+    });
+
+    it('should work in a realistic document with headings, lists, and rules', () => {
+      const markdown = `# Project Plan
+
+---
+
+## Goals
+
+- **Speed:** Ship faster
+- **Quality:** Fewer bugs
+
+## Timeline
+
+1. Planning
+2. Execution
+3. Review
+
+---
+
+*Last updated: 2026*`;
+
+      const requests = convertMarkdownToRequests(markdown, 1);
+
+      // HRs
+      const hrReqs = requests.filter(
+        (r) => r.updateParagraphStyle?.paragraphStyle?.borderBottom,
+      );
+      expect(hrReqs).toHaveLength(2);
+
+      // Headings
+      const h1Reqs = requests.filter(
+        (r) => r.updateParagraphStyle?.paragraphStyle?.namedStyleType === 'HEADING_1',
+      );
+      const h2Reqs = requests.filter(
+        (r) => r.updateParagraphStyle?.paragraphStyle?.namedStyleType === 'HEADING_2',
+      );
+      expect(h1Reqs).toHaveLength(1);
+      expect(h2Reqs).toHaveLength(2);
+
+      // Bullet lists
+      const bulletReqs = requests.filter(
+        (r) =>
+          r.createParagraphBullets?.bulletPreset === 'BULLET_DISC_CIRCLE_SQUARE',
+      );
+      expect(bulletReqs).toHaveLength(2);
+
+      // Numbered list
+      const numberedReqs = requests.filter(
+        (r) =>
+          r.createParagraphBullets?.bulletPreset === 'NUMBERED_DECIMAL_ALPHA_ROMAN',
+      );
+      expect(numberedReqs).toHaveLength(3);
+
+      // Bold
+      const boldReqs = requests.filter(
+        (r) => r.updateTextStyle?.textStyle?.bold === true,
+      );
+      expect(boldReqs.length).toBeGreaterThanOrEqual(2);
+
+      // Italic
+      const italicReqs = requests.filter(
+        (r) => r.updateTextStyle?.textStyle?.italic === true,
+      );
+      expect(italicReqs.length).toBeGreaterThanOrEqual(1);
+
+      // All text present
+      const allText = requests
+        .filter((r) => r.insertText)
+        .map((r) => r.insertText!.text)
+        .join('');
+      expect(allText).toContain('Project Plan');
+      expect(allText).toContain('Ship faster');
+      expect(allText).toContain('Execution');
+      expect(allText).toContain('Last updated: 2026');
+    });
+  });
+});
+
+// ============================================================
+// Google Docs JSON -> Markdown
+// ============================================================
+
+describe('Docs to Markdown Conversion', () => {
+  describe('Headings', () => {
+    it('should convert HEADING_1 to # heading', () => {
+      const doc = {
+        body: {
+          content: [
+            {
+              paragraph: {
+                paragraphStyle: { namedStyleType: 'HEADING_1' },
+                elements: [{ textRun: { content: 'Hello\n' } }],
+              },
+            },
+          ],
+        },
+      };
+      expect(docsJsonToMarkdown(doc)).toContain('# Hello');
+    });
+
+    it('should convert HEADING_2 through HEADING_6', () => {
+      const doc = {
+        body: {
+          content: [2, 3, 4, 5, 6].map((level) => ({
+            paragraph: {
+              paragraphStyle: { namedStyleType: `HEADING_${level}` },
+              elements: [{ textRun: { content: `H${level}\n` } }],
+            },
+          })),
+        },
+      };
+      const md = docsJsonToMarkdown(doc);
+      expect(md).toContain('## H2');
+      expect(md).toContain('### H3');
+      expect(md).toContain('#### H4');
+      expect(md).toContain('##### H5');
+      expect(md).toContain('###### H6');
+    });
+
+    it('should convert TITLE to H1 and SUBTITLE to H2', () => {
+      const doc = {
+        body: {
+          content: [
+            {
+              paragraph: {
+                paragraphStyle: { namedStyleType: 'TITLE' },
+                elements: [{ textRun: { content: 'My Title\n' } }],
+              },
+            },
+            {
+              paragraph: {
+                paragraphStyle: { namedStyleType: 'SUBTITLE' },
+                elements: [{ textRun: { content: 'My Subtitle\n' } }],
+              },
+            },
+          ],
+        },
+      };
+      const md = docsJsonToMarkdown(doc);
+      expect(md).toContain('# My Title');
+      expect(md).toContain('## My Subtitle');
+    });
+  });
+
+  describe('Text Formatting', () => {
+    it('should convert bold text', () => {
+      const doc = {
+        body: {
+          content: [
+            {
+              paragraph: {
+                elements: [{ textRun: { content: 'bold', textStyle: { bold: true } } }],
+              },
+            },
+          ],
+        },
+      };
+      expect(docsJsonToMarkdown(doc)).toContain('**bold**');
+    });
+
+    it('should convert italic text', () => {
+      const doc = {
+        body: {
+          content: [
+            {
+              paragraph: {
+                elements: [{ textRun: { content: 'italic', textStyle: { italic: true } } }],
+              },
+            },
+          ],
+        },
+      };
+      expect(docsJsonToMarkdown(doc)).toContain('*italic*');
+    });
+
+    it('should convert bold+italic text', () => {
+      const doc = {
+        body: {
+          content: [
+            {
+              paragraph: {
+                elements: [
+                  {
+                    textRun: {
+                      content: 'both',
+                      textStyle: { bold: true, italic: true },
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      };
+      expect(docsJsonToMarkdown(doc)).toContain('***both***');
+    });
+
+    it('should convert strikethrough text', () => {
+      const doc = {
+        body: {
+          content: [
+            {
+              paragraph: {
+                elements: [
+                  { textRun: { content: 'struck', textStyle: { strikethrough: true } } },
+                ],
+              },
+            },
+          ],
+        },
+      };
+      expect(docsJsonToMarkdown(doc)).toContain('~~struck~~');
+    });
+
+    it('should convert links', () => {
+      const doc = {
+        body: {
+          content: [
+            {
+              paragraph: {
+                elements: [
+                  {
+                    textRun: {
+                      content: 'click here',
+                      textStyle: { link: { url: 'https://example.com' } },
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      };
+      expect(docsJsonToMarkdown(doc)).toContain('[click here](https://example.com)');
+    });
+
+    it('should detect monospace font as code', () => {
+      const doc = {
+        body: {
+          content: [
+            {
+              paragraph: {
+                elements: [
+                  { textRun: { content: 'normal ' } },
+                  {
+                    textRun: {
+                      content: 'code_here',
+                      textStyle: { weightedFontFamily: { fontFamily: 'Roboto Mono' } },
+                    },
+                  },
+                  { textRun: { content: ' more\n' } },
+                ],
+              },
+            },
+          ],
+        },
+      };
+      expect(docsJsonToMarkdown(doc)).toContain('`code_here`');
+    });
+  });
+
+  describe('Lists', () => {
+    it('should convert bullet list items', () => {
+      const doc = {
+        body: {
+          content: [
+            {
+              paragraph: {
+                bullet: { listId: 'list1', nestingLevel: 0 },
+                elements: [{ textRun: { content: 'Item 1\n' } }],
+              },
+            },
+            {
+              paragraph: {
+                bullet: { listId: 'list1', nestingLevel: 0 },
+                elements: [{ textRun: { content: 'Item 2\n' } }],
+              },
+            },
+          ],
+        },
+        lists: {
+          list1: {
+            listProperties: {
+              nestingLevels: [{ glyphSymbol: '\u25cf' }],
+            },
+          },
+        },
+      };
+      const md = docsJsonToMarkdown(doc);
+      expect(md).toContain('- Item 1');
+      expect(md).toContain('- Item 2');
+    });
+
+    it('should detect ordered lists via glyphType', () => {
+      const doc = {
+        body: {
+          content: [
+            {
+              paragraph: {
+                bullet: { listId: 'olist', nestingLevel: 0 },
+                elements: [{ textRun: { content: 'First\n' } }],
+              },
+            },
+            {
+              paragraph: {
+                bullet: { listId: 'olist', nestingLevel: 0 },
+                elements: [{ textRun: { content: 'Second\n' } }],
+              },
+            },
+          ],
+        },
+        lists: {
+          olist: {
+            listProperties: {
+              nestingLevels: [{ glyphType: 'DECIMAL' }],
+            },
+          },
+        },
+      };
+      const md = docsJsonToMarkdown(doc);
+      expect(md).toContain('1. First');
+      expect(md).toContain('1. Second');
+    });
+
+    it('should render nested lists with indentation', () => {
+      const doc = {
+        body: {
+          content: [
+            {
+              paragraph: {
+                bullet: { listId: 'nlist', nestingLevel: 0 },
+                elements: [{ textRun: { content: 'Parent\n' } }],
+              },
+            },
+            {
+              paragraph: {
+                bullet: { listId: 'nlist', nestingLevel: 1 },
+                elements: [{ textRun: { content: 'Child\n' } }],
+              },
+            },
+          ],
+        },
+        lists: {
+          nlist: {
+            listProperties: {
+              nestingLevels: [{ glyphSymbol: '\u25cf' }, { glyphSymbol: '\u25cb' }],
+            },
+          },
+        },
+      };
+      const md = docsJsonToMarkdown(doc);
+      expect(md).toContain('- Parent');
+      expect(md).toContain('  - Child');
+    });
+  });
+
+  describe('Tables', () => {
+    it('should convert a simple table', () => {
+      const doc = {
+        body: {
+          content: [
+            {
+              table: {
+                tableRows: [
+                  {
+                    tableCells: [
+                      {
+                        content: [
+                          { paragraph: { elements: [{ textRun: { content: 'A\n' } }] } },
+                        ],
+                      },
+                      {
+                        content: [
+                          { paragraph: { elements: [{ textRun: { content: 'B\n' } }] } },
+                        ],
+                      },
+                    ],
+                  },
+                  {
+                    tableCells: [
+                      {
+                        content: [
+                          { paragraph: { elements: [{ textRun: { content: '1\n' } }] } },
+                        ],
+                      },
+                      {
+                        content: [
+                          { paragraph: { elements: [{ textRun: { content: '2\n' } }] } },
+                        ],
+                      },
+                    ],
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      };
+      const md = docsJsonToMarkdown(doc);
+      expect(md).toContain('| A | B |');
+      expect(md).toContain('| --- | --- |');
+      expect(md).toContain('| 1 | 2 |');
+    });
+  });
+
+  describe('Section Breaks', () => {
+    it('should convert section breaks to horizontal rules', () => {
+      const doc = {
+        body: {
+          content: [
+            { paragraph: { elements: [{ textRun: { content: 'Before\n' } }] } },
+            { sectionBreak: {} },
+            { paragraph: { elements: [{ textRun: { content: 'After\n' } }] } },
+          ],
+        },
+      };
+      const md = docsJsonToMarkdown(doc);
+      expect(md).toContain('---');
+      expect(md).toContain('Before');
+      expect(md).toContain('After');
+    });
+  });
+
+  describe('Edge Cases', () => {
+    it('should return empty string for empty document', () => {
+      expect(docsJsonToMarkdown({})).toBe('');
+      expect(docsJsonToMarkdown({ body: {} })).toBe('');
+      expect(docsJsonToMarkdown({ body: { content: [] } })).toBe('');
+    });
+
+    it('should handle paragraphs with no text runs', () => {
+      const doc = {
+        body: {
+          content: [{ paragraph: { elements: [] } }],
+        },
+      };
+      expect(typeof docsJsonToMarkdown(doc)).toBe('string');
+    });
+  });
+});

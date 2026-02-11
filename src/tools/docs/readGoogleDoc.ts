@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { getDocsClient } from '../../clients.js';
 import { DocumentIdParameter, NotImplementedError } from '../../types.js';
 import * as GDocsHelpers from '../../googleDocsApiHelpers.js';
-import { convertDocsJsonToMarkdown } from '../../docsToMarkdown.js';
+import { docsJsonToMarkdown } from '../../markdown-transformer/index.js';
 
 export function register(server: FastMCP) {
   server.addTool({
@@ -90,7 +90,7 @@ export function register(server: FastMCP) {
         }
 
         if (args.format === 'markdown') {
-          const markdownContent = convertDocsJsonToMarkdown(contentSource);
+          const markdownContent = docsJsonToMarkdown(contentSource);
           const totalLength = markdownContent.length;
           log.info(`Generated markdown: ${totalLength} characters`);
 
