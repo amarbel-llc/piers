@@ -25,7 +25,7 @@ const server = new FastMCP({
 registerAllTools(server);
 
 // --- Server Startup ---
-async function startServer() {
+export async function startServer() {
   try {
     await initializeGoogleClient(); // Authorize BEFORE starting listeners
     logger.info('Starting Ultimate Google Docs & Sheets MCP server...');
@@ -49,5 +49,3 @@ async function startServer() {
     process.exit(1);
   }
 }
-
-startServer(); // Removed .catch here, let errors propagate if startup fails critically

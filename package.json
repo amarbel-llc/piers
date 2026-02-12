@@ -1,18 +1,35 @@
 {
-  "name": "mcp-googledocs-server",
+  "name": "@davidthor/google-docs-mcp",
   "version": "1.0.0",
   "type": "module",
-  "main": "index.js",
-  "scripts": {
-    "test": "vitest run",
-    "build": "tsc",
-    "format": "prettier --write .",
-    "format:check": "prettier --check ."
+  "bin": {
+    "google-docs-mcp": "./dist/cli.js"
   },
-  "keywords": [],
-  "author": "",
+  "files": [
+    "dist/",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "start": "node ./dist/cli.js",
+    "build": "tsc",
+    "test": "vitest run",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "prepublishOnly": "npm run build"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": [
+    "mcp",
+    "google-docs",
+    "google-sheets",
+    "google-drive"
+  ],
+  "author": "davidthor",
   "license": "ISC",
-  "description": "",
+  "description": "MCP server for Google Docs, Sheets, and Drive",
   "dependencies": {
     "fastmcp": "^3.24.0",
     "google-auth-library": "^9.15.1",
