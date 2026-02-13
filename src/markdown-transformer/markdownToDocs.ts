@@ -67,6 +67,13 @@ interface PendingListItem {
   taskPrefixProcessed: boolean;
 }
 
+interface CodeBlockRange {
+  tableStartIndex: number;
+  textStartIndex: number;
+  textEndIndex: number;
+  language?: string;
+}
+
 export interface ConversionOptions {
   /** Treat the first H1 (`# ...`) as a Google Docs TITLE instead of HEADING_1. Default false. */
   firstHeadingAsTitle?: boolean;
@@ -85,6 +92,7 @@ interface ConversionContext {
   pendingListItems: PendingListItem[];
   openListItemStack: number[];
   hrRanges: { startIndex: number; endIndex: number }[];
+  codeBlockRanges: CodeBlockRange[];
   tabId?: string;
   currentParagraphStart?: number;
   currentHeadingLevel?: number;
@@ -96,6 +104,32 @@ interface ConversionContext {
 const CODE_FONT_FAMILY = 'Roboto Mono';
 const CODE_TEXT_HEX = '#188038';
 const CODE_BACKGROUND_HEX = '#F1F3F4';
+
+// --- Code Block (table-based) Constants ---
+// Google Docs "Code Block" building block is a styled 1x1 table.
+// These constants define the visual style for programmatically created code blocks.
+const CODE_BLOCK_BG_RGB = { red: 0.937, green: 0.945, blue: 0.953 }; // #EFF1F3
+const CODE_BLOCK_BORDER_RGB = { red: 0.855, green: 0.863, blue: 0.878 }; // #DADCE0
+
+// IMPORTANT: The Google Docs API always inserts a newline character ("\n") BEFORE
+// the table when processing an insertTable request. So calling insertTable at index T
+// produces the following document structure:
+//
+//   T       → paragraph break ("\n") — auto-inserted by the API
+//   T + 1   → table.startIndex       (the actual table element)
+//   T + 2   → tableRow.startIndex
+//   T + 3   → tableCell.startIndex
+//   T + 4   → paragraph.startIndex   ← cell content (text insertion point)
+//   T + 6   → table.endIndex
+//
+// Therefore:
+//   CELL_CONTENT_OFFSET = 4  (from insertTable target T to cell content at T+4)
+//   EMPTY_1x1_TABLE_SIZE = 6 (total positions: 1 newline + 5 table structure)
+//   Actual table start for updateTableCellStyle = T + 1 (NOT T)
+//
+// Verified empirically via documents.get on a real document with a 1x1 table.
+const CELL_CONTENT_OFFSET = 4;
+const EMPTY_1x1_TABLE_SIZE = 6;
 
 // --- Main Conversion Function ---
 
@@ -137,6 +171,7 @@ export function convertMarkdownToRequests(
     pendingListItems: [],
     openListItemStack: [],
     hrRanges: [],
+    codeBlockRanges: [],
     tabId,
     titleConsumed: false,
     firstHeadingAsTitle: options?.firstHeadingAsTitle ?? false,
@@ -478,26 +513,56 @@ function handleCodeBlockToken(token: Token, context: ConversionContext): void {
   const normalizedContent = token.content.endsWith('\n')
     ? token.content.slice(0, -1)
     : token.content;
-  const lines = normalizedContent.length > 0 ? normalizedContent.split('\n') : [''];
+  const language = token.info?.trim() || undefined;
 
-  for (const line of lines) {
-    const startIndex = context.currentIndex;
-    if (line.length > 0) {
-      insertText(line, context);
-    } else {
-      insertText(' ', context);
-    }
-    context.textRanges.push({
-      startIndex,
-      endIndex: context.currentIndex,
-      formatting: { code: true },
+  // Ensure previous content ends with a newline before inserting the table
+  if (context.insertRequests.length > 0 && !lastInsertEndsWithNewline(context)) {
+    insertText('\n', context);
+  }
+
+  const tableStartIndex = context.currentIndex;
+
+  // 1. Insert a 1x1 table (creates the table structure with an empty paragraph in the cell)
+  const tableLocation: Record<string, unknown> = { index: tableStartIndex };
+  if (context.tabId) tableLocation.tabId = context.tabId;
+  context.insertRequests.push({
+    insertTable: {
+      location: tableLocation as docs_v1.Schema$Location,
+      rows: 1,
+      columns: 1,
+    },
+  });
+
+  // 2. Insert code text into the cell paragraph
+  // For a 1x1 table at index N, the cell paragraph content starts at N + CELL_CONTENT_OFFSET
+  const cellContentIndex = tableStartIndex + CELL_CONTENT_OFFSET;
+  const textLength = normalizedContent.length;
+
+  if (textLength > 0) {
+    const cellLocation: Record<string, unknown> = { index: cellContentIndex };
+    if (context.tabId) cellLocation.tabId = context.tabId;
+    context.insertRequests.push({
+      insertText: {
+        location: cellLocation as docs_v1.Schema$Location,
+        text: normalizedContent,
+      },
     });
-    insertText('\n', context);
   }
 
-  if (!lastInsertEndsWithDoubleNewline(context)) {
-    insertText('\n', context);
-  }
+  // 3. Track the code block for table/text formatting in finalization
+  context.codeBlockRanges.push({
+    tableStartIndex,
+    textStartIndex: cellContentIndex,
+    textEndIndex: cellContentIndex + textLength,
+    language,
+  });
+
+  // 4. Advance currentIndex past the entire table structure
+  // Total table size = EMPTY_1x1_TABLE_SIZE + inserted text length
+  context.currentIndex = tableStartIndex + EMPTY_1x1_TABLE_SIZE + textLength;
+
+  // 5. Ensure a newline after the table for paragraph separation
+  insertText('\n', context);
 }
 
 // --- Insert Helper ---
@@ -660,6 +725,61 @@ function finalizeFormatting(context: ConversionContext): void {
     });
   }
 
+  // Code block table formatting (1x1 table with background + monospace text)
+  for (const codeBlock of context.codeBlockRanges) {
+    // The actual table element starts at tableStartIndex + 1 because insertTable
+    // auto-inserts a preceding newline at tableStartIndex (see constants comment above).
+    const tableStartLocation: Record<string, unknown> = { index: codeBlock.tableStartIndex + 1 };
+    if (context.tabId) tableStartLocation.tabId = context.tabId;
+
+    // Style the text inside the cell as monospace
+    if (codeBlock.textEndIndex > codeBlock.textStartIndex) {
+      const codeTextStyle = buildUpdateTextStyleRequest(
+        codeBlock.textStartIndex,
+        codeBlock.textEndIndex,
+        { fontFamily: CODE_FONT_FAMILY },
+        context.tabId
+      );
+      if (codeTextStyle) {
+        context.formatRequests.push(codeTextStyle.request);
+      }
+    }
+
+    // Set cell background color to light gray
+    const borderStyle = {
+      color: { color: { rgbColor: CODE_BLOCK_BORDER_RGB } },
+      width: { magnitude: 0.5, unit: 'PT' },
+      dashStyle: 'SOLID',
+    };
+
+    context.formatRequests.push({
+      updateTableCellStyle: {
+        tableRange: {
+          tableCellLocation: {
+            tableStartLocation: tableStartLocation as docs_v1.Schema$Location,
+            rowIndex: 0,
+            columnIndex: 0,
+          },
+          rowSpan: 1,
+          columnSpan: 1,
+        },
+        tableCellStyle: {
+          backgroundColor: { color: { rgbColor: CODE_BLOCK_BG_RGB } },
+          paddingTop: { magnitude: 8, unit: 'PT' },
+          paddingBottom: { magnitude: 8, unit: 'PT' },
+          paddingLeft: { magnitude: 12, unit: 'PT' },
+          paddingRight: { magnitude: 12, unit: 'PT' },
+          borderTop: borderStyle,
+          borderBottom: borderStyle,
+          borderLeft: borderStyle,
+          borderRight: borderStyle,
+        },
+        fields:
+          'backgroundColor,paddingTop,paddingBottom,paddingLeft,paddingRight,borderTop,borderBottom,borderLeft,borderRight',
+      },
+    });
+  }
+
   // Horizontal rule styling (bottom border on empty paragraphs)
   for (const hrRange of context.hrRanges) {
     const range: docs_v1.Schema$Range = {
@@ -744,9 +864,4 @@ function getCurrentOpenListItem(context: ConversionContext): PendingListItem | n
 function lastInsertEndsWithNewline(context: ConversionContext): boolean {
   const lastInsert = context.insertRequests[context.insertRequests.length - 1]?.insertText?.text;
   return Boolean(lastInsert && lastInsert.endsWith('\n'));
-}
-
-function lastInsertEndsWithDoubleNewline(context: ConversionContext): boolean {
-  const lastInsert = context.insertRequests[context.insertRequests.length - 1]?.insertText?.text;
-  return Boolean(lastInsert && lastInsert.endsWith('\n\n'));
 }

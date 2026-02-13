@@ -359,18 +359,153 @@ describe('Markdown to Docs Conversion', () => {
   });
 
   describe('Code Blocks', () => {
-    it('should convert fenced code blocks and style them as code', () => {
+    it('should insert a 1x1 table for fenced code blocks', () => {
       const requests = convertMarkdownToRequests('```js\nconst x = 1;\nconsole.log(x);\n```', 1);
 
+      // Should have an insertTable request
+      const tableReqs = requests.filter((r) => r.insertTable);
+      expect(tableReqs).toHaveLength(1);
+      expect(tableReqs[0].insertTable!.rows).toBe(1);
+      expect(tableReqs[0].insertTable!.columns).toBe(1);
+    });
+
+    it('should insert code text into the table cell', () => {
+      const requests = convertMarkdownToRequests('```\nhello world\n```', 1);
+
       const insertReqs = requests.filter((r) => r.insertText);
-      expect(insertReqs.some((r) => r.insertText!.text!.includes('const x = 1;'))).toBe(true);
-      expect(insertReqs.some((r) => r.insertText!.text!.includes('console.log(x);'))).toBe(true);
+      expect(insertReqs.some((r) => r.insertText!.text!.includes('hello world'))).toBe(true);
+    });
+
+    it('should style code block text as monospace', () => {
+      const requests = convertMarkdownToRequests('```\nconst x = 1;\nconsole.log(x);\n```', 1);
 
       const styleReqs = requests.filter((r) => r.updateTextStyle);
       const monospaceReqs = styleReqs.filter(
         (r) => r.updateTextStyle!.textStyle!.weightedFontFamily?.fontFamily === 'Roboto Mono'
       );
-      expect(monospaceReqs.length).toBeGreaterThanOrEqual(2);
+      expect(monospaceReqs).toHaveLength(1);
+    });
+
+    it('should style the table cell with background color', () => {
+      const requests = convertMarkdownToRequests('```\ncode\n```', 1);
+
+      const cellStyleReqs = requests.filter((r) => r.updateTableCellStyle);
+      expect(cellStyleReqs).toHaveLength(1);
+
+      const cellStyle = cellStyleReqs[0].updateTableCellStyle!.tableCellStyle!;
+      expect(cellStyle.backgroundColor).toBeDefined();
+      expect(cellStyle.paddingTop).toBeDefined();
+      expect(cellStyle.paddingBottom).toBeDefined();
+      expect(cellStyle.paddingLeft).toBeDefined();
+      expect(cellStyle.paddingRight).toBeDefined();
+    });
+
+    it('should reference the actual table start (insertTable index + 1) in updateTableCellStyle', () => {
+      // insertTable auto-inserts a preceding newline at T, so the table element
+      // starts at T+1. The updateTableCellStyle must reference T+1, not T.
+      const requests = convertMarkdownToRequests('```\ncode\n```', 1);
+
+      const tableReq = requests.find((r) => r.insertTable);
+      const cellStyleReq = requests.find((r) => r.updateTableCellStyle);
+
+      expect(tableReq).toBeDefined();
+      expect(cellStyleReq).toBeDefined();
+
+      const insertTableIndex = tableReq!.insertTable!.location!.index!;
+      const tableStartLocationIndex =
+        cellStyleReq!.updateTableCellStyle!.tableRange!.tableCellLocation!.tableStartLocation!
+          .index!;
+
+      // The actual table start is insertTable target + 1 (preceding newline shifts it)
+      expect(tableStartLocationIndex).toBe(insertTableIndex + 1);
+    });
+
+    it('should insert code text at correct offset from table start', () => {
+      const requests = convertMarkdownToRequests('```\nhello\n```', 1);
+
+      const tableReq = requests.find((r) => r.insertTable);
+      const codeInsertReq = requests.find((r) => r.insertText && r.insertText.text === 'hello');
+
+      expect(tableReq).toBeDefined();
+      expect(codeInsertReq).toBeDefined();
+
+      const tableIndex = tableReq!.insertTable!.location!.index!;
+      const textIndex = codeInsertReq!.insertText!.location!.index!;
+
+      // Cell content should be at table start + 4 (CELL_CONTENT_OFFSET)
+      expect(textIndex).toBe(tableIndex + 4);
+    });
+
+    it('should handle multi-line code blocks', () => {
+      const requests = convertMarkdownToRequests('```\nline1\nline2\nline3\n```', 1);
+
+      const insertReqs = requests.filter((r) => r.insertText);
+      const codeContent = insertReqs.find((r) => r.insertText!.text === 'line1\nline2\nline3');
+      expect(codeContent).toBeDefined();
+    });
+
+    it('should handle empty code blocks', () => {
+      const requests = convertMarkdownToRequests('```\n```', 1);
+
+      const tableReqs = requests.filter((r) => r.insertTable);
+      expect(tableReqs).toHaveLength(1);
+
+      // No code text insertion (empty block)
+      const codeInsertReqs = requests.filter((r) => r.insertText && r.insertText.text !== '\n');
+      expect(codeInsertReqs).toHaveLength(0);
+    });
+
+    it('should handle multiple code blocks in sequence', () => {
+      const markdown = '```\ncode1\n```\n\n```\ncode2\n```';
+      const requests = convertMarkdownToRequests(markdown, 1);
+
+      const tableReqs = requests.filter((r) => r.insertTable);
+      expect(tableReqs).toHaveLength(2);
+
+      const cellStyleReqs = requests.filter((r) => r.updateTableCellStyle);
+      expect(cellStyleReqs).toHaveLength(2);
+    });
+
+    it('should include tabId in table, text, and cell style requests when provided', () => {
+      const requests = convertMarkdownToRequests('```\ncode\n```', 1, 'tab-code');
+
+      const tableReq = requests.find((r) => r.insertTable);
+      expect(tableReq!.insertTable!.location!.tabId).toBe('tab-code');
+
+      const codeInsertReq = requests.find((r) => r.insertText && r.insertText.text === 'code');
+      expect(codeInsertReq!.insertText!.location!.tabId).toBe('tab-code');
+
+      const cellStyleReq = requests.find((r) => r.updateTableCellStyle);
+      expect(
+        cellStyleReq!.updateTableCellStyle!.tableRange!.tableCellLocation!.tableStartLocation!.tabId
+      ).toBe('tab-code');
+    });
+
+    it('should not affect inline code styling', () => {
+      const requests = convertMarkdownToRequests('Use `inline_code` here', 1);
+
+      // Inline code should NOT create a table
+      const tableReqs = requests.filter((r) => r.insertTable);
+      expect(tableReqs).toHaveLength(0);
+
+      // Inline code should still use text styling (monospace + green + background)
+      const styleReqs = requests.filter((r) => r.updateTextStyle);
+      const codeStyleReq = styleReqs.find(
+        (r) => r.updateTextStyle!.textStyle!.weightedFontFamily?.fontFamily === 'Roboto Mono'
+      );
+      expect(codeStyleReq).toBeDefined();
+    });
+
+    it('should correctly track indices after a code block for following content', () => {
+      const markdown = '```\ncode\n```\n\nFollowing text.';
+      const requests = convertMarkdownToRequests(markdown, 1);
+
+      // The following text should have valid insert locations
+      const followingInsert = requests.find(
+        (r) => r.insertText && r.insertText.text!.includes('Following text')
+      );
+      expect(followingInsert).toBeDefined();
+      expect(followingInsert!.insertText!.location!.index).toBeGreaterThan(1);
     });
   });
 
@@ -1120,6 +1255,194 @@ describe('Docs to Markdown Conversion', () => {
       expect(firstLine).toBe('- First');
       expect(nestedLine).toBe('  - Nested');
       expect(backLine).toBe('- Back to top');
+    });
+  });
+
+  describe('Code Block Tables', () => {
+    it('should detect a 1x1 table with gray background as a code block', () => {
+      const doc = {
+        body: {
+          content: [
+            {
+              table: {
+                tableRows: [
+                  {
+                    tableCells: [
+                      {
+                        tableCellStyle: {
+                          backgroundColor: {
+                            color: { rgbColor: { red: 0.937, green: 0.945, blue: 0.953 } },
+                          },
+                        },
+                        content: [
+                          {
+                            paragraph: {
+                              elements: [
+                                {
+                                  textRun: {
+                                    content: 'const x = 1;\n',
+                                    textStyle: {
+                                      weightedFontFamily: { fontFamily: 'Roboto Mono' },
+                                    },
+                                  },
+                                },
+                              ],
+                            },
+                          },
+                        ],
+                      },
+                    ],
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      };
+      const md = docsJsonToMarkdown(doc);
+      expect(md).toContain('```');
+      expect(md).toContain('const x = 1;');
+      // Should NOT be a markdown table
+      expect(md).not.toContain('|');
+    });
+
+    it('should detect a 1x1 table with monospace font as a code block', () => {
+      const doc = {
+        body: {
+          content: [
+            {
+              table: {
+                tableRows: [
+                  {
+                    tableCells: [
+                      {
+                        content: [
+                          {
+                            paragraph: {
+                              elements: [
+                                {
+                                  textRun: {
+                                    content: 'print("hello")\n',
+                                    textStyle: {
+                                      weightedFontFamily: { fontFamily: 'Courier New' },
+                                    },
+                                  },
+                                },
+                              ],
+                            },
+                          },
+                        ],
+                      },
+                    ],
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      };
+      const md = docsJsonToMarkdown(doc);
+      expect(md).toContain('```');
+      expect(md).toContain('print("hello")');
+    });
+
+    it('should NOT detect a regular 2x2 table as a code block', () => {
+      const doc = {
+        body: {
+          content: [
+            {
+              table: {
+                tableRows: [
+                  {
+                    tableCells: [
+                      {
+                        content: [{ paragraph: { elements: [{ textRun: { content: 'A\n' } }] } }],
+                      },
+                      {
+                        content: [{ paragraph: { elements: [{ textRun: { content: 'B\n' } }] } }],
+                      },
+                    ],
+                  },
+                  {
+                    tableCells: [
+                      {
+                        content: [{ paragraph: { elements: [{ textRun: { content: '1\n' } }] } }],
+                      },
+                      {
+                        content: [{ paragraph: { elements: [{ textRun: { content: '2\n' } }] } }],
+                      },
+                    ],
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      };
+      const md = docsJsonToMarkdown(doc);
+      // Should be a markdown table, not a code block
+      expect(md).toContain('|');
+      expect(md).not.toContain('```');
+    });
+
+    it('should handle multi-line content in a code block table', () => {
+      const doc = {
+        body: {
+          content: [
+            {
+              table: {
+                tableRows: [
+                  {
+                    tableCells: [
+                      {
+                        tableCellStyle: {
+                          backgroundColor: {
+                            color: { rgbColor: { red: 0.937, green: 0.945, blue: 0.953 } },
+                          },
+                        },
+                        content: [
+                          {
+                            paragraph: {
+                              elements: [
+                                {
+                                  textRun: {
+                                    content: 'line1\n',
+                                    textStyle: {
+                                      weightedFontFamily: { fontFamily: 'Roboto Mono' },
+                                    },
+                                  },
+                                },
+                              ],
+                            },
+                          },
+                          {
+                            paragraph: {
+                              elements: [
+                                {
+                                  textRun: {
+                                    content: 'line2\n',
+                                    textStyle: {
+                                      weightedFontFamily: { fontFamily: 'Roboto Mono' },
+                                    },
+                                  },
+                                },
+                              ],
+                            },
+                          },
+                        ],
+                      },
+                    ],
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      };
+      const md = docsJsonToMarkdown(doc);
+      expect(md).toContain('```');
+      expect(md).toContain('line1');
+      expect(md).toContain('line2');
     });
   });
 

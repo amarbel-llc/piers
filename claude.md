@@ -51,6 +51,8 @@ The server supports Google Shared Drives. All Drive file operations (`files.list
 - **Strikethrough**: `~~strikethrough~~`
 - **Links**: `[text](url)`
 - **Lists**: Bullet (`-`, `*`) and numbered (`1.`, `2.`)
+- **Code blocks**: Fenced code blocks (` ``` `) rendered as styled 1x1 tables (matching Google Docs' native Code Block building block)
+- **Inline code**: Backtick code rendered with monospace font + green color + gray background
 - **Nested formatting**: `***bold italic***`, `**bold [link](url)**`
 
 ### Markdown Tools

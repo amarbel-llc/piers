@@ -188,6 +188,11 @@ function convertTable(table: any): string {
     return '';
   }
 
+  // Detect code block tables (1x1 table with monospace font or gray background)
+  if (isCodeBlockTable(table)) {
+    return convertCodeBlockTable(table);
+  }
+
   let markdown = '\n';
   let isFirstRow = true;
 
@@ -213,6 +218,77 @@ function convertTable(table: any): string {
   }
 
   return markdown + '\n';
+}
+
+/**
+ * Detects if a table is a code block (1x1 table with monospace font or gray background).
+ * Google Docs "Code Block" building blocks are represented as styled 1x1 tables.
+ */
+function isCodeBlockTable(table: any): boolean {
+  // Must be a 1x1 table
+  if (!table.tableRows || table.tableRows.length !== 1) return false;
+  const row = table.tableRows[0];
+  if (!row.tableCells || row.tableCells.length !== 1) return false;
+
+  const cell = row.tableCells[0];
+
+  // Check for gray/colored background on the cell
+  const cellStyle = cell.tableCellStyle;
+  if (cellStyle?.backgroundColor?.color?.rgbColor) {
+    const bg = cellStyle.backgroundColor.color.rgbColor;
+    // Detect light gray backgrounds (typical of code blocks)
+    // Allow a range of light grays
+    const r = bg.red ?? 0;
+    const g = bg.green ?? 0;
+    const b = bg.blue ?? 0;
+    if (r > 0.85 && g > 0.85 && b > 0.85 && r < 1 && g < 1 && b < 1) {
+      return true;
+    }
+  }
+
+  // Check for monospace font in cell content
+  if (cell.content) {
+    for (const element of cell.content) {
+      if (element.paragraph?.elements) {
+        for (const pe of element.paragraph.elements) {
+          if (pe.textRun?.textStyle) {
+            if (isCodeStyled(pe.textRun.textStyle)) {
+              return true;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Converts a code block table (1x1 table) to a fenced markdown code block.
+ */
+function convertCodeBlockTable(table: any): string {
+  const cell = table.tableRows[0].tableCells[0];
+  let codeText = '';
+
+  if (cell.content) {
+    for (const element of cell.content) {
+      if (element.paragraph?.elements) {
+        for (const pe of element.paragraph.elements) {
+          if (pe.textRun?.content) {
+            codeText += pe.textRun.content;
+          }
+        }
+      }
+    }
+  }
+
+  // Remove trailing newline (cells always end with one)
+  if (codeText.endsWith('\n')) {
+    codeText = codeText.slice(0, -1);
+  }
+
+  return '\n```\n' + codeText + '\n```\n\n';
 }
 
 function extractCellText(cell: any): string {
