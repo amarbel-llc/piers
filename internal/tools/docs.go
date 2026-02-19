@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/amarbel-llc/purse-first/libs/go-mcp/command"
 	"github.com/amarbel-llc/piers/internal/google"
+	"github.com/amarbel-llc/purse-first/libs/go-mcp/command"
 )
 
 func extractText(doc *google.Document) string {

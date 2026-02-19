@@ -39,17 +39,17 @@ type mockDriveService struct{}
 var mockFiles = []DriveFile{
 	{
 		ID: "mock-doc-id-123", Name: "Mock Document",
-		MimeType: "application/vnd.google-apps.document",
+		MimeType:     "application/vnd.google-apps.document",
 		ModifiedTime: "2025-01-15T10:30:00.000Z", CreatedTime: "2025-01-01T08:00:00.000Z",
 		WebViewLink: "https://docs.google.com/document/d/mock-doc-id-123/edit",
-		Owners:       []FileOwner{{DisplayName: "Test User", EmailAddress: "test@example.com"}},
+		Owners:      []FileOwner{{DisplayName: "Test User", EmailAddress: "test@example.com"}},
 	},
 	{
 		ID: "mock-sheet-id-456", Name: "Mock Spreadsheet",
-		MimeType: "application/vnd.google-apps.spreadsheet",
+		MimeType:     "application/vnd.google-apps.spreadsheet",
 		ModifiedTime: "2025-01-14T09:00:00.000Z", CreatedTime: "2025-01-02T08:00:00.000Z",
 		WebViewLink: "https://docs.google.com/spreadsheets/d/mock-sheet-id-456/edit",
-		Owners:       []FileOwner{{DisplayName: "Test User", EmailAddress: "test@example.com"}},
+		Owners:      []FileOwner{{DisplayName: "Test User", EmailAddress: "test@example.com"}},
 	},
 }
 
@@ -116,5 +116,5 @@ func (m *mockSheetsService) CreateSpreadsheet(title string) (*Spreadsheet, error
 		Properties:    SpreadsheetProps{Title: title},
 	}, nil
 }
-func (m *mockSheetsService) AddSheet(sid, title string) error    { return nil }
+func (m *mockSheetsService) AddSheet(sid, title string) error      { return nil }
 func (m *mockSheetsService) BatchUpdate(sid string, req any) error { return nil }

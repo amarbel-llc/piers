@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/amarbel-llc/purse-first/libs/go-mcp/command"
 	"github.com/amarbel-llc/piers/internal/google"
+	"github.com/amarbel-llc/purse-first/libs/go-mcp/command"
 )
 
 type documentInfo struct {
