@@ -10,6 +10,7 @@ func RegisterAll(client *google.Client) *command.App {
 	app.Version = "1.0.0"
 
 	registerDocsCommands(app, client)
+	registerDriveCommands(app, client)
 
 	return app
 }
