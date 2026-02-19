@@ -4,6 +4,7 @@ import { UserError } from 'fastmcp';
 import { OAuth2Client } from 'google-auth-library';
 import { authorize } from './auth.js';
 import { logger } from './logger.js';
+import { createMockDocsClient, createMockDriveClient, createMockSheetsClient } from './mockClients.js';
 
 let authClient: OAuth2Client | null = null;
 let googleDocs: docs_v1.Docs | null = null;
@@ -14,6 +15,16 @@ let googleSheets: sheets_v4.Sheets | null = null;
 export async function initializeGoogleClient() {
   if (googleDocs && googleDrive && googleSheets)
     return { authClient, googleDocs, googleDrive, googleSheets };
+
+  // Mock mode: skip real auth entirely
+  if (process.env.MOCK_AUTH === '1') {
+    googleDocs = createMockDocsClient();
+    googleDrive = createMockDriveClient();
+    googleSheets = createMockSheetsClient();
+    logger.info('MOCK_AUTH enabled: using mock Google API clients.');
+    return { authClient: null, googleDocs, googleDrive, googleSheets };
+  }
+
   if (!authClient) {
     // Check authClient instead of googleDocs to allow re-attempt
     try {
