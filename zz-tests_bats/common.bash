@@ -26,7 +26,7 @@ chflags_and_rm() {
 }
 
 # Path to the built MCP server binary
-MCP_BIN="${MCP_BIN:-$(dirname "$BATS_TEST_FILE")/../dist/index.js}"
+MCP_BIN="${MCP_BIN:-$(dirname "$BATS_TEST_FILE")/../result/bin/piers}"
 
 # Standard MCP initialization handshake messages
 MCP_INIT='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"bats-test","version":"0.0.1"}}}'
@@ -47,7 +47,7 @@ run_mcp() {
 
   local response
   response=$(printf '%s' "$input" \
-    | MOCK_AUTH=1 timeout --preserve-status 5s node "$MCP_BIN" 2>/dev/null \
+    | MOCK_AUTH=1 timeout --preserve-status 5s "$MCP_BIN" 2>/dev/null \
     | grep -F "\"id\":$response_id" \
     | head -1)
 
