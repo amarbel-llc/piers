@@ -11,6 +11,7 @@ func RegisterAll(client *google.Client) *command.App {
 
 	registerDocsCommands(app, client)
 	registerDriveCommands(app, client)
+	registerSheetsCommands(app, client)
 
 	return app
 }
